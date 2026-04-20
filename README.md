@@ -2,8 +2,8 @@
 
 Download Here https://www.nexusmods.com/site/mods/1825
 
-![image][1.png](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/1.png) ![image][2.png](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/2.png)
-![image][3.png](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/3.png) ![image][4.png](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/4.png)
+![image](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/1.png) ![image](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/2.png)
+![image](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/3.png) ![image](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/4.png)
 
 **Mod-O-Matic** is a high-performance utility suite for power users, featuring four powerful tools in one lightning-fast application:
 *   **Replace-O-Matic:** A bulk file replacer with deep binary safety checks, designed for game modders.
