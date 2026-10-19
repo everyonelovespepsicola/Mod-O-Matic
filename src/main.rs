@@ -31,7 +31,7 @@ fn main() -> Result<(), eframe::Error> {
         worker_cores = (0..core_count - threads_per_core).collect();
     }
 
-    let mut viewport = egui::ViewportBuilder::default().with_inner_size([840.0, 500.0]);
+    let mut viewport = egui::ViewportBuilder::default().with_inner_size([890.0, 500.0]);
 
     // Load the icon data from the embedded .ico file
     match image::load_from_memory(include_bytes!("my_icon.ico")) {
@@ -132,6 +132,12 @@ enum JobMessage {
     Done(ProcessingResult),
 }
 
+// Enum for messages from the background comparison thread
+enum CompareMessage {
+    Progress(usize, usize),
+    Done(Result<bool, String>),
+}
+
 // Enum for messages from the background file scanning thread
 enum ScanMessage {
     ScanFinished {
@@ -176,6 +182,7 @@ enum AppMode {
     SortOMatic,
     MergeOMatic,
     AuthentOMatic,
+    CompareOMatic,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -238,6 +245,12 @@ struct FileReplacerApp {
     auth_success_msg: Option<String>,
     auth_warning_msg: Option<String>,
     auth_ignore_xml: bool,
+
+    // --- New fields for Compare-O-Matic ---
+    compare_files: Vec<PathBuf>,
+    compare_result: Option<Result<bool, String>>,
+    compare_job_receiver: Option<Receiver<CompareMessage>>,
+    compare_job_progress: Option<(usize, usize)>,
 }
 
 impl FileReplacerApp {
@@ -290,6 +303,11 @@ impl Default for FileReplacerApp {
             auth_success_msg: None,
             auth_warning_msg: None,
             auth_ignore_xml: true,
+            // --- Compare-O-Matic ---
+            compare_files: Vec::new(),
+            compare_result: None,
+            compare_job_receiver: None,
+            compare_job_progress: None,
         }
     }
 }
@@ -355,6 +373,7 @@ impl eframe::App for FileReplacerApp {
                     }
                     AppMode::MergeOMatic => {} // Merge-O-Matic handles files directly and doesn't use the background scanner
                     AppMode::AuthentOMatic => {} // Authent-O-Matic uses its own dedicated auth_scan_receiver
+                    AppMode::CompareOMatic => {} // Compare-O-Matic does not use the generic background scanner
                 }
                 self.scan_receiver = None; // Job is done
                 self.is_scanning = false;
@@ -457,6 +476,26 @@ impl eframe::App for FileReplacerApp {
             }
         }
 
+        // --- Check for background COMPARE job completion ---
+        let mut compare_job_done = false;
+        if let Some(receiver) = &self.compare_job_receiver {
+            for msg in receiver.try_iter() {
+                match msg {
+                    CompareMessage::Progress(curr, total) => {
+                        self.compare_job_progress = Some((curr, total));
+                    }
+                    CompareMessage::Done(result) => {
+                        self.compare_result = Some(result);
+                        compare_job_done = true;
+                    }
+                }
+            }
+        }
+        if compare_job_done {
+            self.compare_job_receiver = None;
+            self.compare_job_progress = None;
+        }
+
 
         // --- UI Definition ---
         // We define the panels once, and then fill them with content based on the AppMode.
@@ -471,6 +510,7 @@ impl eframe::App for FileReplacerApp {
                 ui.selectable_value(&mut self.app_mode, AppMode::SortOMatic, "Sort-O-Matic");
                 ui.selectable_value(&mut self.app_mode, AppMode::MergeOMatic, "Merge-O-MaticINI");
                 ui.selectable_value(&mut self.app_mode, AppMode::AuthentOMatic, "Authent-O-Matic");
+                ui.selectable_value(&mut self.app_mode, AppMode::CompareOMatic, "Compare-O-Matic");
             });
             ui.separator();
 
@@ -550,6 +590,12 @@ impl eframe::App for FileReplacerApp {
                     ui.heading("File Header Analyzer");
                     ui.add_space(3.0);
                     ui.label("Drop folders below to hunt down files with mismatched extensions or corrupted/empty headers.");
+                }
+                AppMode::CompareOMatic => {
+                    ui.add_space(15.0);
+                    ui.heading("Binary File Comparator");
+                    ui.add_space(3.0);
+                    ui.label("Drop 2 or more files below to verify if their exact hex/binary structures are identical.");
                 }
             }
         });
@@ -854,6 +900,54 @@ impl eframe::App for FileReplacerApp {
                         ui.label(format!("Mismatched Files Found: {}", self.auth_results.len()));
                     });
                 }
+                AppMode::CompareOMatic => {
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(!self.compare_files.is_empty(), egui::Button::new("Clear")).clicked() {
+                            self.compare_files.clear();
+                            self.compare_result = None;
+                        }
+                        ui.label(format!("Files: {}", self.compare_files.len()));
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let is_processing = self.compare_job_receiver.is_some();
+                            let can_compare = self.compare_files.len() >= 2;
+
+                            ui.scope(|ui| {
+                                if !is_processing && can_compare {
+                                    ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(50, 255, 80));
+                                    ui.visuals_mut().widgets.active.bg_fill = egui::Color32::from_rgba_unmultiplied(50, 255, 80, 30);
+                                    ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 255, 120));
+                                }
+                                if ui.add_enabled(!is_processing && can_compare, egui::Button::new("Compare Files")).clicked() {
+                                    self.compare_result = None;
+                                    let (sender, receiver) = mpsc::channel();
+                                    self.compare_job_receiver = Some(receiver);
+                                    self.compare_job_progress = Some((0, 100));
+
+                                    let files = self.compare_files.clone();
+                                    let worker_cores = self.worker_cores.clone();
+
+                                    thread::spawn(move || {
+                                        if !worker_cores.is_empty() {
+                                            let _ = affinity::set_thread_affinity(worker_cores);
+                                        }
+                                        let res = perform_compare(files, sender.clone());
+                                        sender.send(CompareMessage::Done(res)).ok();
+                                    });
+                                }
+                            });
+                        });
+                    });
+                    ui.add_space(10.0);
+                    if let Some(res) = &self.compare_result {
+                        match res {
+                            Ok(true) => { ui.colored_label(egui::Color32::GREEN, "✔️ MATCH: All files have the exact same binary structure!"); }
+                            Ok(false) => { ui.colored_label(egui::Color32::RED, "❌ MISMATCH: The files are different."); }
+                            Err(e) => { ui.colored_label(egui::Color32::RED, format!("Error: {}", e)); }
+                        }
+                    }
+                }
             }
         });
 
@@ -1040,6 +1134,36 @@ impl eframe::App for FileReplacerApp {
                         }
                     }
                 }
+                AppMode::CompareOMatic => {
+                    ui.heading("Files to Compare");
+                    ui.separator();
+                    if self.compare_files.is_empty() {
+                        ui.label("Drop 2 or more files here...");
+                    } else {
+                        let mut action = None;
+                        let row_height = 26.0;
+                        egui::ScrollArea::vertical().show_rows(ui, row_height, self.compare_files.len(), |ui, row_range| {
+                            for index in row_range {
+                                let file = &self.compare_files[index];
+                                ui.horizontal(|ui| {
+                                    if ui.button("X").clicked() { action = Some(index); }
+                                    let lbl_resp = ui.add(egui::Label::new(file.to_string_lossy()).sense(egui::Sense::click()))
+                                        .on_hover_text("Right-click to copy path");
+                                    lbl_resp.context_menu(|ui| {
+                                        if ui.button("Copy Path").clicked() {
+                                            ui.ctx().output_mut(|o| o.copied_text = file.to_string_lossy().to_string());
+                                            ui.close_menu();
+                                        }
+                                    });
+                                });
+                            }
+                        });
+                        if let Some(index) = action {
+                            self.compare_files.remove(index);
+                            self.compare_result = None; // Reset result if files changed
+                        }
+                    }
+                }
             }
         });
 
@@ -1090,11 +1214,14 @@ impl eframe::App for FileReplacerApp {
                     // In Authent-O-Matic, the central panel is always the drop target.
                     painter.rect(central_panel_response.response.rect, 4.0, active_color, egui::Stroke::new(2.0, stroke_color));
                 }
+                AppMode::CompareOMatic => {
+                    painter.rect(central_panel_response.response.rect, 4.0, active_color, egui::Stroke::new(2.0, stroke_color));
+                }
             }
         }
 
         // 2. Handle the actual drop
-        if !ctx.input(|i| i.raw.dropped_files.is_empty()) && !self.is_scanning && !self.is_validating && self.job_receiver.is_none() && self.sort_job_receiver.is_none() {
+        if !ctx.input(|i| i.raw.dropped_files.is_empty()) && !self.is_scanning && !self.is_validating && self.job_receiver.is_none() && self.sort_job_receiver.is_none() && self.compare_job_receiver.is_none() {
             match self.app_mode {
                 AppMode::ReplaceOMatic => {
                     let mut dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
@@ -1232,6 +1359,15 @@ impl eframe::App for FileReplacerApp {
                         sender.send(mismatches).ok();
                     });
                 }
+                AppMode::CompareOMatic => {
+                    let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
+                    for file in dropped_files {
+                        if let Some(path) = file.path {
+                            if path.is_file() { self.compare_files.push(path); }
+                        }
+                    }
+                    self.compare_result = None; // Reset if user modifies list
+                }
             }
         }
 
@@ -1334,6 +1470,26 @@ impl eframe::App for FileReplacerApp {
                             ui.add(egui::ProgressBar::new(progress).show_percentage().animate(true));
                             ui.add_space(5.0);
                             ui.label(format!("Merged {} of {} tweaks", curr, total));
+                        } else {
+                            ui.spinner();
+                        }
+                    });
+                });
+        }
+
+        // If a COMPARE job is running, show a modal overlay
+        if self.compare_job_receiver.is_some() {
+            ctx.request_repaint();
+            egui::Area::new("compare_processing_overlay".into())
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    let frame = egui::Frame::window(&ctx.style()).inner_margin(20.0);
+                    frame.show(ui, |ui| {
+                        ui.heading("Comparing Files...");
+                        ui.add_space(10.0);
+                        if let Some((curr, total)) = self.compare_job_progress {
+                            let progress = if total > 0 { curr as f32 / total as f32 } else { 0.0 };
+                            ui.add(egui::ProgressBar::new(progress).show_percentage().animate(true));
                         } else {
                             ui.spinner();
                         }
@@ -1447,6 +1603,80 @@ impl eframe::App for FileReplacerApp {
                 });
         }
     }
+}
+
+/// Compares 2 or more files byte-by-byte to check if their structures are perfectly identical.
+fn perform_compare(
+    files: Vec<PathBuf>,
+    sender: mpsc::Sender<CompareMessage>,
+) -> Result<bool, String> {
+    if files.len() < 2 {
+        return Ok(true);
+    }
+
+    use std::io::Read;
+
+    // Fast size check first (If sizes differ, they cannot be identical!)
+    let first_len = match std::fs::metadata(&files[0]) {
+        Ok(m) => m.len(),
+        Err(e) => return Err(format!("Could not read {}: {}", files[0].display(), e)),
+    };
+
+    for path in files.iter().skip(1) {
+        let len = match std::fs::metadata(path) {
+            Ok(m) => m.len(),
+            Err(e) => return Err(format!("Could not read {}: {}", path.display(), e)),
+        };
+        if len != first_len {
+            return Ok(false); // Different sizes = definitely not identical
+        }
+    }
+
+    // Sizes match exactly, do a deep byte comparison across all files
+    let mut file_handles = Vec::new();
+    for path in &files {
+        match std::fs::File::open(path) {
+            Ok(f) => file_handles.push(f),
+            Err(e) => return Err(format!("Could not open {}: {}", path.display(), e)),
+        }
+    }
+
+    let chunk_size = 128 * 1024; // Stream efficiently in 128 KB chunks
+    let mut buffer1 = vec![0; chunk_size];
+    let mut buffer_other = vec![0; chunk_size];
+    let mut bytes_read_total = 0;
+
+    loop {
+        let bytes_read = match file_handles[0].read(&mut buffer1) {
+            Ok(0) => break, // EOF reached successfully on the master file
+            Ok(n) => n,
+            Err(e) => return Err(format!("Error reading {}: {}", files[0].display(), e)),
+        };
+
+        bytes_read_total += bytes_read as u64;
+        let progress = if first_len > 0 { ((bytes_read_total as f64 / first_len as f64) * 100.0) as usize } else { 100 };
+        let _ = sender.send(CompareMessage::Progress(progress, 100)); // Update UI progress bar
+
+        let chunk1 = &buffer1[..bytes_read];
+
+        // Compare the buffer chunk against all other files
+        for i in 1..file_handles.len() {
+            let mut other_read = 0;
+            while other_read < bytes_read {
+                match file_handles[i].read(&mut buffer_other[other_read..bytes_read]) {
+                    Ok(0) => return Ok(false), // Unexpected EOF on the target file
+                    Ok(n) => other_read += n,
+                    Err(e) => return Err(format!("Error reading {}: {}", files[i].display(), e)),
+                };
+            }
+
+            if chunk1 != &buffer_other[..bytes_read] {
+                return Ok(false); // Contents differ inside this chunk!
+            }
+        }
+    }
+
+    Ok(true) // We reached the end and all chunks matched
 }
 
 /// The actual INI merging logic

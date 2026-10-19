@@ -3,19 +3,20 @@
 Download Here https://www.nexusmods.com/site/mods/1825
 
 ![image](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/1.png) ![image](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/2.png)
-![image](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/3.png) ![image](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/4.png)
+![image](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/3.png) ![image](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/4.png) ![image](https://github.com/everyonelovespepsicola/Mod-O-Matic/blob/main/5.png)
 
-**Mod-O-Matic** is a high-performance utility suite for power users, featuring four powerful tools in one lightning-fast application:
+**Mod-O-Matic** is a high-performance utility suite for power users, featuring five powerful tools in one lightning-fast application:
 *   **Replace-O-Matic:** A bulk file replacer with deep binary safety checks, designed for game modders.
 *   **Sort-O-Matic:** A flexible file sorter for organizing massive collections of assets.
 *   **Merge-O-MaticINI:** A smart compiler to inject multiple tweak parameters directly into main INI configuration files.
 *   **Authent-O-Matic:** A deep binary analyzer to track down misnamed files and corrupted headers.
+*   **Compare-O-Matic:** A fast binary comparator to verify if 2 or more files have the exact same hex structure.
 
 ---
 
 ## ✨ Awesome Features
 
-*   **Quad-App Interface:** Instantly switch between the 4 core tools with a clean tab interface.
+*   **Penta-App Interface:** Instantly switch between the 5 core tools with a clean tab interface.
 * **Blazing Fast at Any Scale:** Built from the ground up to handle massive workloads. Drop a folder with **50,000+ files** and watch it load instantly. Thanks to UI virtualization and multi-threaded processing, the app remains smooth and responsive no matter the size of your project.
 * **Sleek Drag-and-Drop UI:** Built on a custom-themed, ultra-responsive graphical interface. Drop individual files or **entire folders**! The intelligent routing system automatically sifts through folder trees to find all valid files, puts the master file in the top box, and queues everything else in the bottom list.
 * **Live Animated Progress Bar:** Replacing a massive batch of files? Watch the app work in real-time at 60 FPS with a smooth progress bar and a live file counter.
@@ -56,6 +57,19 @@ Download Here https://www.nexusmods.com/site/mods/1825
 ### How to Use (Authent-O-Matic)
 1. Select the **Authent-O-Matic** tab.
 2. **Drag & Drop** any folder into the window. It will scan in the background and instantly list the culprits!
+
+## ⚖️ Compare-O-Matic
+
+`Compare-O-Matic` allows you to quickly verify if two or more files are perfectly identical at the binary level.
+
+### Features
+*   **Fast Pre-Checks:** Instantly rejects files if their total byte sizes differ.
+*   **Deep Streaming:** Safely streams massive files in chunks to compare exact hex values without freezing the UI or maxing out your RAM.
+
+### How to Use (Compare-O-Matic)
+1. Select the **Compare-O-Matic** tab.
+2. **Drag & Drop** 2 or more files into the main window.
+3. Click the glowing green **`[Compare Files]`** button!
 
 ## ⚙️ Merge-O-MaticINI
 
